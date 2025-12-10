@@ -66,6 +66,10 @@ pip install -r requirements.txt -i  https://pypi.tuna.tsinghua.edu.cn/simple/
 
 python main.py
 ```
+或使用uv安装依赖并运行
+```bash
+uv sync
+```
 
 ### 2. 首次运行
 程序会自动请求管理员权限，这是为了能够进行屏幕截取和自动化操作。
