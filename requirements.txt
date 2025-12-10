@@ -1,0 +1,19 @@
+# 图像处理
+opencv-python>=4.8.0
+Pillow>=10.0.0
+numpy>=1.24.0
+
+llvmlite==0.46.0
+numba==0.63.0
+
+# 深度学习
+torch>=2.0.0
+torchvision>=0.15.0
+
+# 自动化控制
+pydirectinput==1.0.4
+keyboard>=0.13.5
+
+sv-ttk==2.6.1
+
+pyinstaller
