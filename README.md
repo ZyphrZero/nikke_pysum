@@ -2,6 +2,8 @@
 
 一个专为Nikke游戏设计的数字消除辅助工具，基于深度学习和优化算法，能够自动识别游戏界面并进行智能求解。
 
+![程序界面示例](https://test.fukit.cn/autoupload/fr/JPb3wcBYRgvdgjBZlDTRdWSEpzNQ5XwArLwhNo1hcymyl5f0KlZfm6UsKj-HyTuv/20251210/FXE1/818X777/17d9781e-6108-45b6-9d42-62b1b7c11b71.png/webp)
+
 ## 功能特性
 
 ### 🎯 核心功能
