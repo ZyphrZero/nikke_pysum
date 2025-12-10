@@ -2,6 +2,7 @@
 *.json
 CLAUDE.md
 .claude/
+*.png
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -387,38 +387,56 @@ class GameAssistantGUI:
         # 求解参数配置
         solver_frame = ttk.Frame(control_frame)
         solver_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=5)
+        solver_frame.columnconfigure(0, weight=0)
+        solver_frame.columnconfigure(1, weight=0)
+        solver_frame.columnconfigure(2, weight=0)
+        solver_frame.columnconfigure(3, weight=1)
 
-        ttk.Label(solver_frame, text='求解模式:').pack(side=tk.LEFT, padx=5)
+        # 第1行：求解模式选择
+        ttk.Label(solver_frame, text='求解模式:').grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
         self.solver_mode_var = tk.StringVar(value='god')
         mode_combo = ttk.Combobox(solver_frame, textvariable=self.solver_mode_var, width=10, state='readonly')
         mode_combo['values'] = ('classic', 'omni', 'god')
-        mode_combo.pack(side=tk.LEFT, padx=5)
+        mode_combo.grid(row=0, column=1, sticky=tk.W, padx=5, pady=2)
 
-        ttk.Label(solver_frame, text='束宽度:').pack(side=tk.LEFT, padx=5)
-        self.beam_width_var = tk.StringVar(value='50')
-        ttk.Entry(solver_frame, textvariable=self.beam_width_var, width=8).pack(side=tk.LEFT)
-
-        ttk.Label(solver_frame, text='最大时间(秒):').pack(side=tk.LEFT, padx=5)
-        self.max_time_var = tk.StringVar(value='30')
-        ttk.Entry(solver_frame, textvariable=self.max_time_var, width=8).pack(side=tk.LEFT)
-
-        ttk.Label(solver_frame, text='线程数:').pack(side=tk.LEFT, padx=5)
-        optimal_threads = min(os.cpu_count() or 1, 8)
-        self.threads_var = tk.StringVar(value=str(optimal_threads))
-        self.threads_entry = ttk.Entry(solver_frame, textvariable=self.threads_var, width=8)
-        self.threads_entry.pack(side=tk.LEFT)
-
-        # 自动最优线程勾选框
-        self.auto_threads_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(
+        # 模式说明提示
+        mode_help_text = ttk.Label(
             solver_frame,
-            text='自动最优线程',
-            variable=self.auto_threads_var,
-            command=self._on_auto_threads_changed
-        ).pack(side=tk.LEFT, padx=5)
+            text='classic:仅2数字│omni:多数字│god:推荐',
+            font=('Consolas', 8),
+            foreground='gray'
+        )
+        mode_help_text.grid(row=0, column=2, columnspan=2, sticky=tk.W, padx=5, pady=2)
 
-        # 初始状态：勾选时禁用输入框
-        self.threads_entry.config(state='disabled')
+        # 第2行：束宽度设置
+        ttk.Label(solver_frame, text='束宽度:').grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
+        self.beam_width_var = tk.StringVar(value='80')
+        beam_entry = ttk.Entry(solver_frame, textvariable=self.beam_width_var, width=8)
+        beam_entry.grid(row=1, column=1, sticky=tk.W, padx=5, pady=2)
+
+        # 束宽度提示
+        beam_help_text = ttk.Label(
+            solver_frame,
+            text='单线程推荐80-100',
+            font=('Consolas', 8),
+            foreground='gray'
+        )
+        beam_help_text.grid(row=1, column=2, columnspan=2, sticky=tk.W, padx=5, pady=2)
+
+        # 第3行：最大时间设置
+        ttk.Label(solver_frame, text='最大时间(秒):').grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
+        self.max_time_var = tk.StringVar(value='20')
+        time_entry = ttk.Entry(solver_frame, textvariable=self.max_time_var, width=8)
+        time_entry.grid(row=2, column=1, sticky=tk.W, padx=5, pady=2)
+
+        # 时间提示
+        time_help_text = ttk.Label(
+            solver_frame,
+            text='建议5-30秒，16×10网格一般5-10秒即可',
+            font=('Consolas', 8),
+            foreground='gray'
+        )
+        time_help_text.grid(row=2, column=2, columnspan=2, sticky=tk.W, padx=5, pady=2)
 
         # 显示区域
         display_frame = ttk.LabelFrame(main_frame, text='识别结果与日志', padding='10')
@@ -678,66 +696,66 @@ class GameAssistantGUI:
         self.log(f'  左下: {corner_points[3]}')
         self.status_var.set('已选择屏幕区域')
         # === 添加：保存测试截图用于检查 ===
-        # try:
-        #     from core.image_processor import ImageProcessor
-        #     import os
-        #     from datetime import datetime
-        #
-        #     # 创建调试目录
-        #     debug_dir = 'debug_screenshots'
-        #     os.makedirs(debug_dir, exist_ok=True)
-        #
-        #     # 创建图像处理器
-        #     processor = ImageProcessor()
-        #
-        #     # 使用透视变换截取屏幕区域
-        #     screenshot = processor.capture_and_warp_perspective(corner_points)
-        #
-        #     # 保存原始截图
-        #     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        #     screenshot_path = os.path.join(debug_dir, f'screenshot_{timestamp}.png')
-        #     cv2.imwrite(screenshot_path, screenshot)
-        #
-        #     self.log(f'✓ 已保存透视变换后的截图: {screenshot_path}')
-        #     self.log(f'  截图尺寸: {screenshot.shape[1]} × {screenshot.shape[0]} 像素')
-        #
-        #     # 使用用户选择的网格尺寸
-        #     grid_size = self.grid_size_var.get()
-        #     if grid_size == '15x9':
-        #         rows, cols = 15, 9
-        #     else:  # 16x10
-        #         rows, cols = 16, 10
-        #
-        #     self.log(f'使用网格尺寸: {rows} × {cols}')
-        #
-        #     # 生成网格分割可视化
-        #     grid_cells = processor.detect_grid(screenshot, rows, cols)
-        #
-        #     # 创建可视化图像（绘制网格线）
-        #     vis_image = screenshot.copy()
-        #     for i in range(rows):
-        #         for j in range(cols):
-        #             x, y, w, h = grid_cells[i][j]
-        #             cv2.rectangle(vis_image, (x, y), (x+w, y+h), (0, 255, 0), 2)
-        #             # 在每个格子中心标注坐标
-        #             center_x = x + w // 2
-        #             center_y = y + h // 2
-        #             cv2.putText(vis_image, f'{i},{j}', (center_x-20, center_y),
-        #                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
-        #
-        #     # 保存网格可视化
-        #     grid_path = os.path.join(debug_dir, f'grid_{timestamp}.png')
-        #     cv2.imwrite(grid_path, vis_image)
-        #     self.log(f'✓ 已保存网格分割图: {grid_path}')
-        #     self.log(f'✓ 检测到网格尺寸: {rows} × {cols}')
-        #
-        #     self.log('请检查截图和网格分割是否正确，然后点击"识别数字"按钮')
-        #     self.log('-' * 60)
-        #
-        # except Exception as e:
-        #     self.log(f'保存测试截图失败: {str(e)}')
-        #     import traceback
-        #     self.log(traceback.format_exc())
+        try:
+            from core.image_processor import ImageProcessor
+            import os
+            from datetime import datetime
+        
+            # 创建调试目录
+            debug_dir = 'debug_screenshots'
+            os.makedirs(debug_dir, exist_ok=True)
+        
+            # 创建图像处理器
+            processor = ImageProcessor()
+        
+            # 使用透视变换截取屏幕区域
+            screenshot = processor.capture_and_warp_perspective(corner_points)
+        
+            # 保存原始截图
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            screenshot_path = os.path.join(debug_dir, f'screenshot_{timestamp}.png')
+            cv2.imwrite(screenshot_path, screenshot)
+        
+            self.log(f'✓ 已保存透视变换后的截图: {screenshot_path}')
+            self.log(f'  截图尺寸: {screenshot.shape[1]} × {screenshot.shape[0]} 像素')
+        
+            # 使用用户选择的网格尺寸
+            grid_size = self.grid_size_var.get()
+            if grid_size == '15x9':
+                rows, cols = 15, 9
+            else:  # 16x10
+                rows, cols = 16, 10
+        
+            self.log(f'使用网格尺寸: {rows} × {cols}')
+        
+            # 生成网格分割可视化
+            grid_cells = processor.detect_grid(screenshot, rows, cols)
+        
+            # 创建可视化图像（绘制网格线）
+            vis_image = screenshot.copy()
+            for i in range(rows):
+                for j in range(cols):
+                    x, y, w, h = grid_cells[i][j]
+                    cv2.rectangle(vis_image, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                    # 在每个格子中心标注坐标
+                    center_x = x + w // 2
+                    center_y = y + h // 2
+                    cv2.putText(vis_image, f'{i},{j}', (center_x-20, center_y),
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+        
+            # 保存网格可视化
+            grid_path = os.path.join(debug_dir, f'grid_{timestamp}.png')
+            cv2.imwrite(grid_path, vis_image)
+            self.log(f'✓ 已保存网格分割图: {grid_path}')
+            self.log(f'✓ 检测到网格尺寸: {rows} × {cols}')
+        
+            self.log('请检查截图和网格分割是否正确，然后点击"识别数字"按钮')
+            self.log('-' * 60)
+        
+        except Exception as e:
+            self.log(f'保存测试截图失败: {str(e)}')
+            import traceback
+            self.log(traceback.format_exc())
 
         # 保存坐标到JSON文件
         self.save_coordinates()
@@ -747,17 +765,6 @@ class GameAssistantGUI:
 
         # 启用识别按钮
         self.btn_recognize_and_solve.config(state=tk.NORMAL)
-
-    def _on_auto_threads_changed(self):
-        """处理自动最优线程勾选框状态改变"""
-        if self.auto_threads_var.get():
-            # 勾选：禁用输入框，自动填写最优线程数
-            self.threads_entry.config(state='disabled')
-            optimal_threads = min(os.cpu_count() or 1, 8)
-            self.threads_var.set(str(optimal_threads))
-        else:
-            # 取消勾选：启用输入框，允许手动输入
-            self.threads_entry.config(state='normal')
 
     def recognize_and_solve(self):
         """识别数字并自动计算最优路径"""
@@ -868,8 +875,8 @@ class GameAssistantGUI:
 
             # 如果是自动求解模式，延迟一点时间后自动开始求解
             if auto_solve:
-                # 延迟500ms后自动求解，给用户时间看到识别结果
-                self.root.after(500, self._auto_solve)
+                # 延迟100ms后自动求解，给用户时间看到识别结果
+                self.root.after(100, self._auto_solve)
             else:
                 # 非自动模式，启用执行按钮
                 self.btn_execute.config(state=tk.NORMAL)
@@ -891,12 +898,6 @@ class GameAssistantGUI:
             mode = self.solver_mode_var.get()
             beam_width = int(self.beam_width_var.get())
             max_time = int(self.max_time_var.get())
-
-            # 根据勾选状态决定线程数
-            if self.auto_threads_var.get():
-                threads = None  # 自动选择最优线程数
-            else:
-                threads = int(self.threads_var.get())
         except ValueError:
             messagebox.showerror('错误', '求解参数格式错误！请输入有效的数字。')
             return
@@ -908,18 +909,12 @@ class GameAssistantGUI:
         if max_time < 5 or max_time > 300:
             messagebox.showerror('错误', '最大时间应在5-300秒之间！')
             return
-        if threads is not None and (threads < 1 or threads > 16):
-            messagebox.showerror('错误', '线程数应在1-16之间！')
-            return
 
         self.log(f'正在计算最优路径...')
         self.log(f'  模式: {mode}')
         self.log(f'  束宽度: {beam_width}')
         self.log(f'  最大时间: {max_time}秒')
-        if threads is None:
-            self.log(f'  线程数: 自动选择')
-        else:
-            self.log(f'  线程数: {threads}')
+        self.log(f'  引擎: 单线程 + Numba加速')
         self.status_var.set('计算中...')
 
         # 禁用按钮
@@ -929,12 +924,12 @@ class GameAssistantGUI:
         # 在后台线程中执行求解
         thread = threading.Thread(
             target=self._solve_game_thread,
-            args=(mode, beam_width, max_time, threads),
+            args=(mode, beam_width, max_time),
             daemon=True
         )
         thread.start()
 
-    def _solve_game_thread(self, mode, beam_width, max_time, threads):
+    def _solve_game_thread(self, mode, beam_width, max_time):
         """
         在后台线程中执行求解
 
@@ -942,7 +937,6 @@ class GameAssistantGUI:
             mode: 求解模式
             beam_width: 束宽度
             max_time: 最大时间
-            threads: 线程数
         """
         try:
             # 导入求解器
@@ -956,8 +950,7 @@ class GameAssistantGUI:
                 mode=mode,
                 beam_width=beam_width,
                 max_time=max_time,
-                use_rollback=True,
-                threads=threads
+                use_rollback=True
             )
 
             # 获取求解信息

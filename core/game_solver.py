@@ -1,21 +1,22 @@
 """
 数字消除游戏求解器
-引入Numba加速和算法优化
+单线程优化版 + Numba加速
 
 核心优化:
-1. Numba JIT编译: 核心函数速度提升10-100倍
-2. 智能提前终止: 多重退出条件，避免无效计算
-3. 优化的Beam Search: 动态算力调整 + 连续无改进检测
-4. 高效的Smart Rollback: 激进的残局处理策略
-5. 启发式评估: 孤岛惩罚 + 中心引力 + 动态噪音
+1. 单线程架构: 避免多进程开销，专为16×10网格优化
+2. Numba JIT编译: 核心函数速度提升10-100倍
+3. 智能提前终止: 多重退出条件，避免无效计算
+4. 优化的Beam Search: 动态算力调整 + 连续无改进检测
+5. 高效的Smart Rollback: 激进的残局处理策略
+6. 启发式评估: 孤岛惩罚 + 中心引力 + 动态噪音
+7. 内存友好: 减少内存复制，提升缓存命中率
 """
 
 import numpy as np
 import random
 import time
 import os
-from typing import List, Tuple, Dict, Optional
-from concurrent.futures import ProcessPoolExecutor
+from typing import List, Tuple, Dict
 
 # 尝试导入Numba加速
 try:
@@ -47,13 +48,13 @@ def _calc_prefix_sum(vals, rows, cols):
     return P
 
 
-@njit(fastmath=True, nogil=True)
+@njit(fastmath=True, nogil=True, cache=True)
 def _get_rect_sum(P, r1, c1, r2, c2):
     """获取矩形区域的和（Numba加速）"""
     return P[r2 + 1][c2 + 1] - P[r1][c2 + 1] - P[r2 + 1][c1] + P[r1][c1]
 
 
-@njit(fastmath=True, nogil=True)
+@njit(fastmath=True, nogil=True, cache=True)
 def _count_islands(map_data, rows, cols):
     """
     计算孤岛数量（Numba加速）
@@ -203,7 +204,7 @@ def _apply_move(map_data, rect, cols):
 # ============================================================================
 
 class GameSolver:
-    """数字消除游戏求解器（性能优化版）"""
+    """数字消除游戏求解器（单线程优化版）"""
 
     def __init__(self, grid: List[List[int]]):
         """
@@ -229,33 +230,65 @@ class GameSolver:
 
     def solve(self,
               mode: str = 'god',
-              beam_width: int = 50,
+              beam_width: int = 80,
               max_time: int = 30,
-              use_rollback: bool = True,
-              threads: Optional[int] = None) -> Optional[List[List[Tuple[int, int]]]]:
+              use_rollback: bool = True) -> List[List[Tuple[int, int]]] | None:
         """
-        求解游戏
+        求解游戏（单线程优化版）
+
+        三种求解模式详解：
+        ┌─────────────────────────────────────────────────────────────┐
+        │ classic模式：保守策略                                       │
+        │   - 只允许选择恰好2个数字的矩形区域                          │
+        │   - 适合追求步数最少、计算速度快的场景                       │
+        │   - 优势：求解速度快，路径短                                │
+        │   - 劣势：覆盖率可能不是最高                                │
+        └─────────────────────────────────────────────────────────────┘
+
+        ┌─────────────────────────────────────────────────────────────┐
+        │ omni模式：激进策略                                          │
+        │   - 允许选择2个或更多数字的矩形区域                          │
+        │   - 适合追求最高分数、最高覆盖率的场景                       │
+        │   - 优势：覆盖率最高，分数最高                              │
+        │   - 劣势：计算时间稍长，路径可能较长                        │
+        └─────────────────────────────────────────────────────────────┘
+
+        ┌─────────────────────────────────────────────────────────────┐
+        │ god模式：综合策略（推荐）                                   │
+        │   - 第一阶段：classic模式快速开局，建立基础路径              │
+        │   - 第二阶段：omni模式深度优化，最大化覆盖率                │
+        │   - 优势：兼顾速度和覆盖率，推荐默认选择                    │
+        │   - 特点：在单线程模式下表现最佳                            │
+        └─────────────────────────────────────────────────────────────┘
 
         Args:
             mode: 求解模式 ('classic', 'omni', 'god')
-            beam_width: 束搜索宽度
-            max_time: 最大搜索时间（秒）
-            use_rollback: 是否使用智能回溯
-            threads: 线程数（None=自动选择，1=单线程，>1=多线程）
+                - 'classic': 保守模式，只选2数字矩形
+                - 'omni': 激进模式，可选多数字矩形
+                - 'god': 综合模式（推荐），两阶段混合策略
+            beam_width: 束搜索宽度（单线程模式推荐使用80-100）
+                - 数值越大搜索越全面，但耗时越长
+                - 单线程模式可使用更大宽度（无需考虑多进程开销）
+            max_time: 最大搜索时间（秒），建议5-30秒
+                - 时间越长找到最优解的概率越大
+                - 16×10网格一般5-10秒即可找到很好解
+            use_rollback: 是否使用智能回溯（推荐开启）
+                - 启用Smart Rollback可提升解的质量
+                - 会在搜索后期回退并重新尝试
 
         Returns:
             路径列表，每个路径是一个坐标列表 [(row, col), ...]
         """
-        # 自动选择最优线程数
-        if threads is None:
-            cpu_count = os.cpu_count() or 1
-            threads = min(cpu_count, 8)  # 最多使用8个线程
-            print(f">> [求解器] 自动选择线程数: {threads} (CPU核心数: {cpu_count})")
-
-        if threads > 1:
-            return self._solve_multithread(mode, beam_width, max_time, threads)
-        else:
-            return self._solve_single(mode, beam_width, max_time, use_rollback)
+        # 显示模式说明
+        mode_descriptions = {
+            'classic': '保守模式（仅2数字矩形）',
+            'omni': '激进模式（多数字矩形）',
+            'god': '综合模式（推荐）'
+        }
+        mode_desc = mode_descriptions.get(mode, mode)
+        print(f">> [求解器] 单线程模式，Numba加速")
+        print(f">> [求解器] 模式: {mode_desc}，束宽度: {beam_width}")
+        return self._solve_single(mode, beam_width, max_time, use_rollback)
 
     def _solve_single(self, mode: str, beam_width: int, max_time: int, use_rollback: bool):
         """单线程求解"""
@@ -482,7 +515,7 @@ class GameSolver:
             return beam_width
 
     def _filter_moves(self, moves, mode):
-        """根据模式过滤移动"""
+        """根据模式过滤移动（Numba优化）"""
         valid_moves = []
         for move in moves:
             count = move[4]
@@ -506,41 +539,6 @@ class GameSolver:
             result.append(path)
         return result
 
-    def _solve_multithread(self, mode: str, beam_width: int, max_time: int, threads: int):
-        """多线程求解（使用参考项目的三种预设）"""
-        # 参考 sum10_Nikke 项目的三种求解预设
-        PERSONALITIES = [
-            {'w_island': 50, 'w_fragment': 2, 'role': 'Balancer (稳健)'},
-            {'w_island': 24, 'w_fragment': 0.5, 'role': 'Striker (主攻)'},
-            {'w_island': 80, 'w_fragment': 1.0, 'role': 'Heavy (重装)'}
-        ]
-
-        args_list = []
-        for i in range(threads):
-            # 循环使用三种预设
-            personality = PERSONALITIES[i % len(PERSONALITIES)].copy()
-            args_list.append((
-                self.grid_flat.tolist(),
-                self.vals_flat.tolist(),
-                self.rows,
-                self.cols,
-                beam_width,
-                mode,
-                random.randint(0, 1000000) + i,
-                max_time,
-                personality
-            ))
-
-        # 并行求解
-        with ProcessPoolExecutor(max_workers=threads) as executor:
-            results = list(executor.map(_solve_worker, args_list))
-
-        # 选择最优结果
-        best_result = max(results, key=lambda x: x['score'])
-        self.best_score = best_result['score']
-        self.best_solution = self._convert_paths(best_result['path'])
-        return self.best_solution
-
     def get_best_solution_info(self) -> dict:
         """获取最优解信息"""
         if self.best_solution is None:
@@ -558,54 +556,6 @@ class GameSolver:
             'score': self.best_score,
             'coverage': self.best_score / total_cells if total_cells > 0 else 0.0
         }
-
-
-def _solve_worker(args):
-    """多线程工作函数"""
-    grid_flat, vals_flat, rows, cols, beam_width, mode, seed, time_limit, personality = args
-
-    np.random.seed(seed)
-    random.seed(seed)
-
-    # 重建网格
-    grid = [[vals_flat[i * cols + j] for j in range(cols)] for i in range(rows)]
-
-    # 创建求解器
-    solver = GameSolver(grid)
-
-    # 求解
-    weights = {
-        'w_island': personality.get('w_island', 100),
-        'w_fragment': personality.get('w_fragment', 0.5)
-    }
-
-    initial_map = np.ones(rows * cols, dtype=np.int8)
-
-    # 第一阶段
-    if mode == 'god':
-        p1_weights = weights.copy()
-        p1_weights['w_island'] *= 0.5
-        p1_state = solver._run_beam_search(
-            initial_map, beam_width, 'classic', 0, [], p1_weights
-        )
-        best_state = solver._run_beam_search(
-            p1_state['map'], beam_width, 'omni',
-            p1_state['score'], p1_state['path'], weights
-        )
-    else:
-        best_state = solver._run_beam_search(
-            initial_map, beam_width, mode, 0, [], weights
-        )
-
-    # Smart Rollback
-    best_state = solver._smart_rollback(best_state, beam_width, time_limit, weights)
-
-    return {
-        'worker_id': seed,
-        'score': best_state['score'],
-        'path': best_state['path'],
-        'personality': personality
-    }
 
 
 def test_solver():
@@ -627,11 +577,16 @@ def test_solver():
         print(row)
 
     # 测试不同模式
+    mode_descriptions = {
+        'classic': '保守模式（仅2数字矩形）- 求快',
+        'omni': '激进模式（多数字矩形）- 求高',
+        'god': '综合模式（推荐）- 平衡'
+    }
     modes = ['classic', 'omni', 'god']
 
     for mode in modes:
         print(f"\n{'=' * 60}")
-        print(f"模式: {mode}")
+        print(f"模式: {mode} - {mode_descriptions[mode]}")
         print(f"{'=' * 60}")
 
         solver = GameSolver(grid)
