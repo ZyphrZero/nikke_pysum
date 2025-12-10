@@ -137,8 +137,16 @@ class ScreenSelector:
         self.canvas = tk.Canvas(self.root, cursor='cross', bg='gray')
         self.canvas.pack(fill=tk.BOTH, expand=True)
 
+        # 初始化拖拽相关变量
+        self.start_x = None
+        self.start_y = None
+        self.current_rect = None
+        self.selection_rect = None
+
         # 绑定鼠标事件
-        self.canvas.bind('<Button-1>', self.on_click)
+        self.canvas.bind('<Button-1>', self.on_mouse_down)
+        self.canvas.bind('<B1-Motion>', self.on_mouse_drag)
+        self.canvas.bind('<ButtonRelease-1>', self.on_mouse_up)
         self.canvas.bind('<Button-3>', self.reset_selection)  # 右键重置
 
         # 绑定键盘事件
@@ -149,7 +157,7 @@ class ScreenSelector:
         self.hint_text = self.canvas.create_text(
             self.root.winfo_screenwidth() // 2,
             50,
-            text='请依次点击虚线区域四个角坐标：左上 → 右上 → 右下 → 左下\n右键或按R重置，ESC取消',
+            text='请拖拽选择虚线区域（按住鼠标左键拖拽）\n右键或按R重置，ESC取消',
             font=('Arial', 18),
             fill='white',
             justify='center'
@@ -157,96 +165,91 @@ class ScreenSelector:
 
         self.root.mainloop()
 
-    def on_click(self, event):
-        """鼠标点击事件"""
-        # 记录点击位置
-        self.points.append((event.x, event.y))
+    def on_mouse_down(self, event):
+        """鼠标按下事件"""
+        # 记录起始点
+        self.start_x = event.x
+        self.start_y = event.y
 
-        # 绘制点标记（圆圈）
-        marker = self.canvas.create_oval(
-            event.x - 8, event.y - 8,
-            event.x + 8, event.y + 8,
-            fill='red', outline='white', width=2
-        )
-        self.point_markers.append(marker)
-
-        # 绘制点的序号
-        self.canvas.create_text(
-            event.x, event.y,
-            text=str(len(self.points)),
-            font=('Arial', 12, 'bold'),
-            fill='white'
+        # 创建矩形选择框
+        self.selection_rect = self.canvas.create_rectangle(
+            self.start_x, self.start_y, event.x, event.y,
+            outline='red', width=2
         )
 
-        # 如果不是第一个点，绘制连线
-        if len(self.points) > 1:
-            prev_point = self.points[-2]
-            line = self.canvas.create_line(
-                prev_point[0], prev_point[1],
-                event.x, event.y,
-                fill='red', width=3
+    def on_mouse_drag(self, event):
+        """鼠标拖拽事件"""
+        if self.start_x is not None:
+            # 更新矩形大小
+            self.canvas.coords(
+                self.selection_rect,
+                self.start_x, self.start_y, event.x, event.y
             )
-            self.lines.append(line)
 
-        # 更新提示文本
-        self.update_hint()
+    def on_mouse_up(self, event):
+        """鼠标释放事件"""
+        if self.start_x is not None:
+            # 确保坐标顺序（左上、右下）
+            x1, y1 = self.start_x, self.start_y
+            x2, y2 = event.x, event.y
 
-        # 如果已经点击了4个点，完成选择
-        if len(self.points) == 4:
-            # 绘制最后一条连线（连接第4个点和第1个点）
-            first_point = self.points[0]
-            line = self.canvas.create_line(
-                event.x, event.y,
-                first_point[0], first_point[1],
-                fill='red', width=3
-            )
-            self.lines.append(line)
+            # 规范化坐标（确保x1 < x2, y1 < y2）
+            left = min(x1, x2)
+            top = min(y1, y2)
+            right = max(x1, x2)
+            bottom = max(y1, y2)
 
-            # 延迟500ms后关闭窗口，让用户看到完整的四边形
-            self.root.after(500, self.complete_selection)
+            # 验证选择区域是否足够大
+            if right - left < 10 or bottom - top < 10:
+                self.canvas.itemconfig(
+                    self.hint_text,
+                    text='选择区域太小，请重新拖拽选择\n右键或按R重置，ESC取消',
+                    fill='yellow'
+                )
+                # 清除矩形并重置
+                self.root.after(1000, self.reset_selection)
+                return
 
-    def update_hint(self):
-        """更新提示文本"""
-        hints = [
-            '请点击左上角',
-            '请点击右上角',
-            '请点击右下角',
-            '请点击左下角',
-            '完成！'
-        ]
-
-        current_hint = hints[len(self.points)]
-        self.canvas.itemconfig(
-            self.hint_text,
-            text=f'已选择 {len(self.points)}/4 个角点 - {current_hint}\n右键或按R重置，ESC取消'
-        )
+            # 完成选择
+            self.root.after(200, self.complete_selection)
 
     def reset_selection(self, event=None):
         """重置选择"""
-        # 清除所有标记和连线
-        for marker in self.point_markers:
-            self.canvas.delete(marker)
-        for line in self.lines:
-            self.canvas.delete(line)
+        # 清除矩形
+        if self.selection_rect:
+            self.canvas.delete(self.selection_rect)
+        self.selection_rect = None
 
         # 清空数据
-        self.points = []
-        self.point_markers = []
-        self.lines = []
+        self.start_x = None
+        self.start_y = None
 
         # 重置提示文本
         self.canvas.itemconfig(
             self.hint_text,
-            text='请依次点击虚线区域四个角坐标：左上 → 右上 → 右下 → 左下\n右键或按R重置，ESC取消'
+            text='请拖拽选择虚线区域（按住鼠标左键拖拽）\n右键或按R重置，ESC取消',
+            fill='white'
         )
 
     def complete_selection(self):
         """完成选择"""
+        # 获取矩形的坐标
+        coords = self.canvas.coords(self.selection_rect)
+        left, top, right, bottom = coords
+
+        # 生成四个角点坐标（左上、右上、右下、左下）
+        corner_points = [
+            (left, top),      # 左上
+            (right, top),     # 右上
+            (right, bottom),  # 右下
+            (left, bottom)    # 左下
+        ]
+
         # 关闭窗口
         self.root.destroy()
 
         # 调用回调函数，传递四个角点坐标
-        self.callback(self.points)
+        self.callback(corner_points)
 
     def cancel_selection(self):
         """取消选择"""
@@ -260,7 +263,7 @@ class GameAssistantGUI:
         """初始化GUI"""
         self.root = tk.Tk()
         self.root.title('小游戏工具')
-        self.root.geometry('820x750')
+        self.root.geometry('820x870')
 
         # 应用 Sun Valley 主题
         sv_ttk.set_theme("light")
@@ -326,6 +329,13 @@ class GameAssistantGUI:
 
         ttk.Radiobutton(
             grid_size_frame,
+            text='14×8',
+            variable=self.grid_size_var,
+            value='14x8'
+        ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Radiobutton(
+            grid_size_frame,
             text='15×9',
             variable=self.grid_size_var,
             value='15x9'
@@ -344,7 +354,7 @@ class GameAssistantGUI:
 
         self.btn_select = ttk.Button(
             btn_config,
-            text='虚线四个点坐标',
+            text='截取屏幕区域',
             command=self.select_screen_region
         )
         self.btn_select.pack(side=tk.LEFT, padx=5)
@@ -432,11 +442,29 @@ class GameAssistantGUI:
         # 时间提示
         time_help_text = ttk.Label(
             solver_frame,
-            text='建议5-30秒，16×10网格一般5-10秒即可',
+            text='建议5-30秒，14×8网格5-8秒，16×10网格5-10秒',
             font=('Consolas', 8),
             foreground='gray'
         )
         time_help_text.grid(row=2, column=2, columnspan=2, sticky=tk.W, padx=5, pady=2)
+
+        # 第4行：自动执行选项
+        self.auto_execute_var = tk.BooleanVar(value=True)
+        auto_execute_checkbox = ttk.Checkbutton(
+            solver_frame,
+            text='计算完成后自动执行自动化',
+            variable=self.auto_execute_var
+        )
+        auto_execute_checkbox.grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+
+        # 自动执行提示
+        auto_help_text = ttk.Label(
+            solver_frame,
+            text='启用后将自动开始执行自动化（可节省操作步骤）',
+            font=('Consolas', 8),
+            foreground='gray'
+        )
+        auto_help_text.grid(row=3, column=1, columnspan=3, sticky=tk.W, padx=5, pady=5)
 
         # 显示区域
         display_frame = ttk.LabelFrame(main_frame, text='识别结果与日志', padding='10')
@@ -506,6 +534,9 @@ class GameAssistantGUI:
                 'grid_size': self.grid_size_var.get()
             }
 
+            # 保存自动执行设置
+            config['auto_execute'] = self.auto_execute_var.get()
+
             try:
                 with open(self.config_file, 'w', encoding='utf-8') as f:
                     json.dump(config, f, indent=2, ensure_ascii=False)
@@ -526,9 +557,13 @@ class GameAssistantGUI:
                 saved_grid_size = data.get('grid_size', '15x9')
                 self.grid_size_var.set(saved_grid_size)
 
+                # 加载自动执行设置
+                auto_execute = config.get('auto_execute', True)
+                self.auto_execute_var.set(auto_execute)
+
                 if self.selected_region:
                     self.log(f'✓ 已加载保存的坐标: {self.config_file}')
-                    self.log(f'  虚线四个点坐标: {self.selected_region}')
+                    self.log(f'  屏幕区域坐标: {self.selected_region}')
                     self.log(f'  网格尺寸: {saved_grid_size}')
                     self.log('配置完成，可以开始识别数字')
                     # 更新状态显示
@@ -592,7 +627,7 @@ class GameAssistantGUI:
         """更新按钮文本以显示快捷键"""
         # 更新选择区域按钮
         select_key = self.hotkeys.get('select_region', 'F1')
-        self.btn_select.config(text=f'虚线四个点坐标 ({select_key})')
+        self.btn_select.config(text=f'截取屏幕区域 ({select_key})')
 
         # 更新识别并求解按钮
         recognize_and_solve_key = self.hotkeys.get('recognize_and_solve', 'F2')
@@ -689,7 +724,7 @@ class GameAssistantGUI:
                           顺序：左上、右上、右下、左下
         """
         self.selected_region = corner_points
-        self.log(f'已选择虚线四个点坐标区域:')
+        self.log(f'已选择屏幕区域:')
         self.log(f'  左上: {corner_points[0]}')
         self.log(f'  右上: {corner_points[1]}')
         self.log(f'  右下: {corner_points[2]}')
@@ -721,7 +756,9 @@ class GameAssistantGUI:
         
             # 使用用户选择的网格尺寸
             grid_size = self.grid_size_var.get()
-            if grid_size == '15x9':
+            if grid_size == '14x8':
+                rows, cols = 14, 8
+            elif grid_size == '15x9':
                 rows, cols = 15, 9
             else:  # 16x10
                 rows, cols = 16, 10
@@ -778,7 +815,9 @@ class GameAssistantGUI:
 
         # 获取用户选择的网格尺寸
         grid_size = self.grid_size_var.get()
-        if grid_size == '15x9':
+        if grid_size == '14x8':
+            rows, cols = 14, 8
+        elif grid_size == '15x9':
             rows, cols = 15, 9
         else:  # 16x10
             rows, cols = 16, 10
@@ -873,10 +912,9 @@ class GameAssistantGUI:
             # 启用识别按钮
             self.btn_recognize_and_solve.config(state=tk.NORMAL)
 
-            # 如果是自动求解模式，延迟一点时间后自动开始求解
+            # 如果是自动求解模式，立即自动开始求解
             if auto_solve:
-                # 延迟100ms后自动求解，给用户时间看到识别结果
-                self.root.after(100, self._auto_solve)
+                self._auto_solve()
             else:
                 # 非自动模式，启用执行按钮
                 self.btn_execute.config(state=tk.NORMAL)
@@ -1013,6 +1051,14 @@ class GameAssistantGUI:
                 # 启用按钮
                 self.btn_recognize_and_solve.config(state=tk.NORMAL)
                 self.btn_execute.config(state=tk.NORMAL)
+
+                # 检查是否启用自动执行
+                if self.auto_execute_var.get():
+                    self.log('\n✓ 已启用自动执行，正在开始自动化...')
+                    # 立即自动执行
+                    self.execute_automation()
+                else:
+                    self.log('\n提示：可以点击"执行自动化"按钮开始执行')
             else:
                 self.log('未找到完美解决方案')
                 self.log('可能原因：')
