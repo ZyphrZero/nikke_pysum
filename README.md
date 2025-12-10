@@ -51,25 +51,19 @@
 
 - **游戏求解算法**: 基于原项目的Beam Search优化算法
 - **CNN识别模型**: 使用原项目训练的digit识别模型
-- **性能优化**: 继承并优化了Numba加速策略
 
 感谢 [Small-tailqwq](https://github.com/Small-tailqwq) 的开源贡献！
 
 ## 环境要求
 
-- Python 3.8+
+- Python 3.10+
 - Windows 10/11 (需要管理员权限)
 
-## 安装依赖
+## 安装依赖和运行
 
 ```bash
-pip install -r requirements.txt
-```
+pip install -r requirements.txt -i  https://pypi.tuna.tsinghua.edu.cn/simple/
 
-## 使用说明
-
-### 1. 启动程序
-```bash
 python main.py
 ```
 

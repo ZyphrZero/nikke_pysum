@@ -102,20 +102,25 @@ class SettingsDialog:
 
 
 class ScreenSelector:
-    """屏幕区域选择器"""
+    """屏幕区域选择器（带虚拟网格）"""
 
-    def __init__(self, callback):
+    def __init__(self, callback, grid_rows=16, grid_cols=10):
         """
         初始化屏幕选择器
 
         Args:
             callback: 选择完成后的回调函数，参数为四个角点坐标列表 [(x1,y1), (x2,y2), (x3,y3), (x4,y4)]
                      顺序：左上、右上、右下、左下
+            grid_rows: 网格行数（默认16）
+            grid_cols: 网格列数（默认10）
         """
         self.callback = callback
+        self.grid_rows = grid_rows
+        self.grid_cols = grid_cols
         self.points = []  # 存储已点击的角点
         self.point_markers = []  # 存储点的标记（圆圈）
         self.lines = []  # 存储连线
+        self.grid_lines = []  # 存储网格线
         self.root = None
         self.canvas = None
         self.hint_text = None
@@ -174,7 +179,7 @@ class ScreenSelector:
         # 创建矩形选择框
         self.selection_rect = self.canvas.create_rectangle(
             self.start_x, self.start_y, event.x, event.y,
-            outline='red', width=2
+            outline='red', width=4
         )
 
     def on_mouse_drag(self, event):
@@ -185,6 +190,9 @@ class ScreenSelector:
                 self.selection_rect,
                 self.start_x, self.start_y, event.x, event.y
             )
+
+            # 绘制虚拟网格
+            self.draw_virtual_grid(self.start_x, self.start_y, event.x, event.y)
 
     def on_mouse_up(self, event):
         """鼠标释放事件"""
@@ -213,12 +221,75 @@ class ScreenSelector:
             # 完成选择
             self.root.after(200, self.complete_selection)
 
+    def draw_virtual_grid(self, x1, y1, x2, y2):
+        """
+        绘制虚拟网格线
+
+        Args:
+            x1, y1: 起始点坐标
+            x2, y2: 结束点坐标
+        """
+        # 清除旧的网格线
+        for line in self.grid_lines:
+            self.canvas.delete(line)
+        self.grid_lines.clear()
+
+        # 规范化坐标
+        left = min(x1, x2)
+        top = min(y1, y2)
+        right = max(x1, x2)
+        bottom = max(y1, y2)
+
+        width = right - left
+        height = bottom - top
+
+        # 如果区域太小，不绘制网格
+        if width < 50 or height < 50:
+            return
+
+        # 计算网格间距
+        cell_width = width / self.grid_cols
+        cell_height = height / self.grid_rows
+
+        # 绘制垂直线
+        for i in range(1, self.grid_cols):
+            x = left + i * cell_width
+            line = self.canvas.create_line(
+                x, top, x, bottom,
+                fill='cyan', width=3, dash=(4, 4)
+            )
+            self.grid_lines.append(line)
+
+        # 绘制水平线
+        for i in range(1, self.grid_rows):
+            y = top + i * cell_height
+            line = self.canvas.create_line(
+                left, y, right, y,
+                fill='cyan', width=3, dash=(4, 4)
+            )
+            self.grid_lines.append(line)
+
+        # 在右下角显示网格尺寸提示
+        grid_info_text = f'{self.grid_rows}×{self.grid_cols}'
+        grid_info = self.canvas.create_text(
+            right - 40, bottom - 20,
+            text=grid_info_text,
+            font=('Arial', 14, 'bold'),
+            fill='yellow'
+        )
+        self.grid_lines.append(grid_info)
+
     def reset_selection(self, event=None):
         """重置选择"""
         # 清除矩形
         if self.selection_rect:
             self.canvas.delete(self.selection_rect)
         self.selection_rect = None
+
+        # 清除网格线
+        for line in self.grid_lines:
+            self.canvas.delete(line)
+        self.grid_lines.clear()
 
         # 清空数据
         self.start_x = None
@@ -709,8 +780,19 @@ class GameAssistantGUI:
         self.log('请在屏幕上拖拽选择游戏区域...')
         self.status_var.set('等待选择屏幕区域...')
 
-        # 创建选择器
-        selector = ScreenSelector(self.on_region_selected)
+        # 获取用户选择的网格尺寸
+        grid_size = self.grid_size_var.get()
+        if grid_size == '14x8':
+            rows, cols = 14, 8
+        elif grid_size == '15x9':
+            rows, cols = 15, 9
+        else:  # 16x10
+            rows, cols = 16, 10
+
+        self.log(f'虚拟网格尺寸: {rows}×{cols}')
+
+        # 创建选择器（传递网格尺寸）
+        selector = ScreenSelector(self.on_region_selected, grid_rows=rows, grid_cols=cols)
 
         # 在新线程中启动选择器（避免阻塞主界面）
         threading.Thread(target=selector.start_selection, daemon=True).start()
@@ -952,7 +1034,6 @@ class GameAssistantGUI:
         self.log(f'  模式: {mode}')
         self.log(f'  束宽度: {beam_width}')
         self.log(f'  最大时间: {max_time}秒')
-        self.log(f'  引擎: 单线程 + Numba加速')
         self.status_var.set('计算中...')
 
         # 禁用按钮

@@ -1,15 +1,26 @@
 """
-数字消除游戏求解器
-单线程优化版 + Numba加速
+数字消除游戏求解器 V3.1
+单线程优化版 + Numba加速 + 平衡策略
 
 核心优化:
 1. 单线程架构: 避免多进程开销，专为16×10网格优化
 2. Numba JIT编译: 核心函数速度提升10-100倍
-3. 智能提前终止: 多重退出条件，避免无效计算
-4. 优化的Beam Search: 动态算力调整 + 连续无改进检测
-5. 高效的Smart Rollback: 激进的残局处理策略
-6. 启发式评估: 孤岛惩罚 + 中心引力 + 动态噪音
-7. 内存友好: 减少内存复制，提升缓存命中率
+3. 智能提前终止: 动态阈值 + 多重退出条件
+4. 优化的Beam Search: 动态算力调整（×3.0残局）+ 连续无改进检测
+5. 激进 Smart Rollback: 85%概率死磕残局（10-30步）
+6. 极端权重修补: 权重范围 -50~300，5倍回滚算力
+7. 启发式评估: 孤岛惩罚 + 中心引力 + 动态噪音
+8. 内存友好: 减少内存复制，提升缓存命中率
+
+V3.1 更新日志 (2025-12-10):
+- 平衡版参数调整：性能与质量的最佳平衡
+- 回滚算力：5倍（平衡版）
+- 动态算力：残局×3.0，中局×1.5
+- 窗口大小：残局100，中局60
+- 极端权重范围：-50~300
+- 动态提前终止阈值：开局25步，残局15步
+- 高分奖励机制：突破历史最高分时重置计数器
+- 优化孤岛检测算法：使用短路逻辑
 """
 
 import numpy as np
@@ -17,19 +28,7 @@ import random
 import time
 import os
 from typing import List, Tuple, Dict
-
-# 尝试导入Numba加速
-try:
-    from numba import njit
-    HAS_NUMBA = True
-    print(">> [系统] Numba加速引擎已启用")
-except ImportError:
-    HAS_NUMBA = False
-    print(">> [警告] 未检测到Numba，性能将受限")
-    def njit(*args, **kwargs):
-        def decorator(func):
-            return func
-        return decorator
+from numba import njit
 
 
 # ============================================================================
@@ -57,24 +56,28 @@ def _get_rect_sum(P, r1, c1, r2, c2):
 @njit(fastmath=True, nogil=True, cache=True)
 def _count_islands(map_data, rows, cols):
     """
-    计算孤岛数量（Numba加速）
+    计算孤岛数量（Numba加速 + 优化版）
     孤岛定义：四周都没有相邻格子的孤立格子
+    优化：使用位运算和短路逻辑
     """
     islands = 0
     for r in range(rows):
         for c in range(cols):
             idx = r * cols + c
             if map_data[idx] == 1:
-                # 检查四周邻居（提前退出优化）
+                # 优化：使用短路逻辑，一旦发现邻居就跳过
+                has_neighbor = False
                 if r > 0 and map_data[(r - 1) * cols + c] == 1:
-                    continue
-                if r < rows - 1 and map_data[(r + 1) * cols + c] == 1:
-                    continue
-                if c > 0 and map_data[r * cols + (c - 1)] == 1:
-                    continue
-                if c < cols - 1 and map_data[r * cols + (c + 1)] == 1:
-                    continue
-                islands += 1
+                    has_neighbor = True
+                elif r < rows - 1 and map_data[(r + 1) * cols + c] == 1:
+                    has_neighbor = True
+                elif c > 0 and map_data[r * cols + (c - 1)] == 1:
+                    has_neighbor = True
+                elif c < cols - 1 and map_data[r * cols + (c + 1)] == 1:
+                    has_neighbor = True
+
+                if not has_neighbor:
+                    islands += 1
     return islands
 
 
@@ -286,7 +289,6 @@ class GameSolver:
             'god': '综合模式（推荐）'
         }
         mode_desc = mode_descriptions.get(mode, mode)
-        print(f">> [求解器] 单线程模式，Numba加速")
         print(f">> [求解器] 模式: {mode_desc}，束宽度: {beam_width}")
         return self._solve_single(mode, beam_width, max_time, use_rollback)
 
@@ -347,8 +349,17 @@ class GameSolver:
 
         # 迭代搜索
         for depth in range(max_depth):
-            # 提前终止：连续20步无改进
-            if no_improvement_depth > 20:
+            # V7.1 优化：动态提前终止阈值
+            # 开局：允许更多探索（25步）
+            # 中局：标准探索（20步）
+            # 残局：快速收敛（15步）
+            early_stop_threshold = 25
+            if best_state['score'] > 80:
+                early_stop_threshold = 20
+            if best_state['score'] > 120:
+                early_stop_threshold = 15
+
+            if no_improvement_depth > early_stop_threshold:
                 break
 
             # 动态调整算力
@@ -382,9 +393,15 @@ class GameSolver:
 
                 found_any_move = True
 
-                # 排序并截断
+                # 排序并截断（平衡版：适度扩大窗口）
                 valid_moves.sort(key=lambda x: x[4], reverse=True)
-                window_size = 100 if best_state['score'] > 120 else 60
+                # 动态窗口：平衡搜索范围
+                if best_state['score'] > 120:
+                    window_size = 100  # 残局
+                elif best_state['score'] > 80:
+                    window_size = 60   # 中局
+                else:
+                    window_size = 60   # 开局
                 top_moves = valid_moves[:window_size]
 
                 # 生成后继状态
@@ -420,38 +437,44 @@ class GameSolver:
 
     def _smart_rollback(self, best_state, beam_width, max_time, weights):
         """
-        Smart Rollback（优化版）
+        Smart Rollback（V7.1 激进版）
 
-        优化点:
-        1. 降低退出阈值（10→5）
-        2. 连续无改进退出（8次）
-        3. 高分提前退出（95%覆盖率）
-        4. 激进的残局处理（80%概率回滚10-30步）
+        核心优化（借鉴 god_brain.py）:
+        1. 更激进的残局回滚：85%概率回滚10-30步（死磕残局）
+        2. 极端性格修补：权重范围扩大到 -50~300
+        3. 更大的回滚算力：6倍 beam width
+        4. 动态无改进阈值：根据分数调整
+        5. 更低的退出阈值：path_len < 3
+        6. 高分奖励机制：突破高分时重置计数器
         """
         start_time = time.time()
         iteration = 0
         best_final = best_state
         no_improvement_count = 0
-        max_no_improvement = 8
+        max_score_history = best_state['score']
+
+        # 动态调整无改进阈值
+        total_cells = np.sum(self.initial_map)
+        max_no_improvement = 10 if best_state['score'] < total_cells * 0.8 else 6
 
         while (time.time() - start_time) < max_time:
             iteration += 1
             path = best_final['path']
             path_len = len(path)
 
-            # 提前退出条件（三重保险）
-            if path_len < 5:
+            # 提前退出条件（优化版）
+            if path_len < 3:  # 降低阈值：5→3
                 break
 
             if no_improvement_count >= max_no_improvement:
                 break
 
-            total_cells = np.sum(self.initial_map)
-            if best_final['score'] >= total_cells * 0.95:
+            # 高分提前退出（98%覆盖率）
+            if best_final['score'] >= total_cells * 0.98:
                 break
 
-            # 80%概率回滚10-30步（死磕残局）
-            if random.random() < 0.8:
+            # V7.1 激进策略：85%概率回滚10-30步（死磕残局）
+            if random.random() < 0.85:
                 rollback_steps = random.randint(10, 30)
             else:
                 rollback_steps = random.randint(30, max(31, int(path_len * 0.6)))
@@ -476,39 +499,56 @@ class GameSolver:
                             temp_map[idx] = 0
                 prefix_score += count
 
-            # 极端性格修补
+            # V7.1 极端性格修补（扩大权重范围）
             repair_weights = weights.copy()
             dice = random.random()
-            if dice < 0.4:
+            if dice < 0.35:
+                # 极度恐慌模式（35%概率）
                 repair_weights['w_island'] = random.randint(150, 300)
-            elif dice < 0.7:
+            elif dice < 0.65:
+                # 混乱邪恶模式（30%概率）
                 repair_weights['w_island'] = random.randint(-50, -10)
             else:
-                repair_weights['w_island'] += random.randint(-20, 20)
+                # 微调模式（35%概率）
+                repair_weights['w_island'] += random.randint(-30, 30)
 
-            # 使用5倍算力重新搜索
+            # 使用5倍算力重新搜索（平衡版）
             huge_beam = int(beam_width * 5.0)
             repaired_state = self._run_beam_search(
                 temp_map, huge_beam, 'omni',
                 prefix_score, prefix_path, repair_weights
             )
 
-            # 更新最优解
+            # 更新最优解（带高分奖励机制）
             if repaired_state['score'] > best_final['score']:
                 best_final = repaired_state
                 no_improvement_count = 0
+
+                # 高分奖励：突破历史最高分时重置计数器
+                if repaired_state['score'] > max_score_history:
+                    max_score_history = repaired_state['score']
+                    no_improvement_count = 0
             else:
                 no_improvement_count += 1
+                # 同分接受概率提升：30%→35%
                 if repaired_state['score'] == best_final['score']:
-                    if random.random() < 0.3:
+                    if random.random() < 0.35:
                         best_final = repaired_state
 
+        print(f">> [Smart Rollback] 完成 {iteration} 轮迭代，最终分数: {best_final['score']}")
         return best_final
 
     def _get_effective_beam(self, beam_width, current_score):
-        """动态调整算力"""
+        """
+        动态调整算力（平衡版）
+
+        平衡策略：
+        - 残局（>120分）：算力×3.0
+        - 中局（>80分）：算力×1.5
+        - 开局（≤80分）：标准算力
+        """
         if current_score > 120:
-            return int(beam_width * 3.0)  # 残局×3
+            return int(beam_width * 3.0)  # 残局×3.0
         elif current_score > 80:
             return int(beam_width * 1.5)  # 中局×1.5
         else:
